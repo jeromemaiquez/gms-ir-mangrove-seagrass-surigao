@@ -28,6 +28,7 @@
 ## In this Repository:
 
 - `generate_aoi.py`: Automatically generates the AOI (coastal land and sea) given a city/municipality
+- `fabdem.py`: Loads FABDEM data in a STAC-like manner (from `utils.py` of `fabdem-v12` STAC endpoint via Hugging Face (https://huggingface.co/datasets/links-ads/fabdem-v12))
 - `run_t-test.py`: Runs independent-sample t-tests to measure the differentiability of land cover classes for different spectral indices
 - `spectral_signature.py`: Visualizes the spectral signature of different land cover classes (for initial data exploration)
 - Others to be added in the future...
