@@ -15,6 +15,10 @@ import pystac_client
 from odc.stac import load
 from pathlib import Path
 
+# --------------
+# Initial Set-up 
+# --------------
+
 # Set up DuckDB connection and spatial extensions
 con = duckdb.connect()
 con.execute('INSTALL spatial; LOAD spatial;')
@@ -31,6 +35,10 @@ fabdem_catalog_url = 'https://huggingface.co/datasets/links-ads/fabdem-v12/raw/m
 province = 'Surigao del Sur'
 municipality = 'Hinatuan'
 
+# ----------------------
+# Preparing input layers
+# ----------------------
+
 # Query boundaries of target municipality
 query_admin_bounds = f"""
 SELECT *
@@ -45,6 +53,10 @@ gdf_admin_bounds = gpd.GeoDataFrame.from_arrow(
     con.sql(query_admin_bounds).arrow()
 )
 # print(gdf_admin_bounds.head())
+
+# Define CRSs for future buffering and matching
+crs_wgs84 = gdf_admin_bounds.crs
+crs_utm50n = 'EPSG:32651'
 
 # Convert admin bounds GeoDataFrame back to GeoArrow for future DuckDB queries
 arrow_admin_bounds = gdf_admin_bounds.to_arrow()
@@ -69,9 +81,9 @@ gdf_neighbors = gpd.GeoDataFrame.from_arrow(
 # Create ocean mask for future clipping of offshore portion of AOI
 gs_ocean_mask = (
     gdf_admin_bounds
-        .to_crs('EPSG:32651')
+        .to_crs(crs_utm50n)
         .buffer(5_000)
-        .to_crs(gdf_admin_bounds.crs)
+        .to_crs(crs_wgs84)
         .difference(gdf_admin_bounds)
         .difference(gdf_neighbors.union_all())
 )
@@ -92,8 +104,37 @@ WHERE Location IN (
 
 gdf_coast = gpd.GeoDataFrame.from_arrow(
     con.sql(query_coast).arrow()
-).set_crs(gdf_admin_bounds.crs)
+).set_crs(crs_wgs84)
 # print(gdf_coast)
 
 # Download the OSM boundary (which contains both and land and sea territory) for future clipping
 gdf_osm_aoi = ox.geocode_to_gdf(f'{municipality}, {province}, Philippines')
+
+# Get coastline clipped to OSM boundaries
+gs_coastline = gdf_coast.clip(gdf_osm_aoi.to_crs(gdf_coast.crs)).geometry
+
+# ------------------------
+# Generate portions of AOI
+# ------------------------
+
+# Portion 1: 1-km inland buffer
+gs_inland = gpd.GeoSeries(
+    gs_coastline
+        .to_crs(crs_utm50n)
+        .buffer(1_000)
+        .to_crs(crs_wgs84)
+        .clip(gdf_admin_bounds)
+        .union_all(),
+    crs=crs_wgs84
+)
+
+# Portion 2: 2-km offshore buffer
+gs_offshore = gpd.GeoSeries(
+    gs_coastline
+        .to_crs(crs_utm50n)
+        .buffer(2_000)
+        .to_crs(crs_wgs84)
+        .clip(gs_ocean_mask)
+        .union_all(),
+    crs=crs_wgs84
+).clip(gdf_osm_aoi.to_crs(crs_wgs84))
