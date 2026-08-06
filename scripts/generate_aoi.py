@@ -5,8 +5,9 @@ import osmnx as ox
 import rioxarray as rxr
 
 from shapely import to_geojson
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Polygon
 from rasterio.features import shapes
+import matplotlib.pyplot as plt
 
 from fabdem import load_filtered_items
 
@@ -15,13 +16,18 @@ import pystac_client
 from odc.stac import load
 from pathlib import Path
 
-# --------------
-# Initial Set-up 
-# --------------
+
+# --- SECTION 0: Initial Set-up ---
+
 
 # Set up DuckDB connection and spatial extensions
 con = duckdb.connect()
 con.execute('INSTALL spatial; LOAD spatial;')
+
+# Directories for plots & outputs
+work_dir = Path().resolve()
+plots_dir = work_dir / 'plots'
+output_dir = work_dir / 'output'
 
 # Filepaths for ADM4 boundaries and S2Coast datasets
 fp_adm4 = Path(r"C:\\Users\\remot\Documents\\Jerome\\05_GIS_Data\\Vector Data\\Edge-Matched Global Subnational Boundaries\\adm4_polygons.parquet")
@@ -35,9 +41,9 @@ fabdem_catalog_url = 'https://huggingface.co/datasets/links-ads/fabdem-v12/raw/m
 province = 'Surigao del Sur'
 municipality = 'Hinatuan'
 
-# ----------------------
-# Preparing input layers
-# ----------------------
+
+# --- SECTION 1: Preparing input layers ---
+
 
 # Query boundaries of target municipality
 query_admin_bounds = f"""
@@ -113,9 +119,9 @@ gdf_osm_aoi = ox.geocode_to_gdf(f'{municipality}, {province}, Philippines')
 # Get coastline clipped to OSM boundaries
 gs_coastline = gdf_coast.clip(gdf_osm_aoi.to_crs(gdf_coast.crs)).geometry
 
-# ------------------------
-# Generate portions of AOI
-# ------------------------
+
+# --- SECTION 2: Generate inland & offshore portions of AOI ---
+
 
 # Portion 1: 1-km inland buffer
 gs_inland = gpd.GeoSeries(
@@ -138,3 +144,117 @@ gs_offshore = gpd.GeoSeries(
         .union_all(),
     crs=crs_wgs84
 ).clip(gdf_osm_aoi.to_crs(crs_wgs84))
+
+# Combine to create preliminary AOI
+gs_prelim_aoi = gpd.GeoSeries(
+    pd.concat([gs_inland, gs_offshore]),
+    crs=crs_wgs84
+)
+
+
+# --- SECTION 3: Generate low-elevation mask to add to AOI
+
+
+# Get bounding box of admin bounds for FABDEM query
+bbox = gdf_admin_bounds.total_bounds
+
+# Load filtered FABDEM tiles that intersect with bbox into a DataArray
+filtered_items = load_filtered_items(fabdem_catalog_url, tuple(bbox))
+
+da_dem = load(
+    filtered_items,
+    resolution=30,
+    crs="utm"
+).squeeze()['DEM']
+
+# Mask to only retain low-elevation pixels
+da_low_elev = da_dem.where((da_dem <= 6) & (da_dem >=0))
+
+# Get the DEM's transform and CRS for later use
+transform = da_low_elev.rio.transform()
+crs_dem = da_low_elev.rio.crs
+
+# Vectorize low-elevation DEM pixels
+poly_low_elev = list(
+    {
+        'geometry': s,
+        'properties': {
+            'val': v
+        }
+    } for i, (s, v) in enumerate(shapes(
+        da_low_elev.values,
+        transform=transform
+    ))
+)
+
+# Convert low-elevation polygons to GeoDataFrame and remove nulls
+gdf_low_elev = gpd.GeoDataFrame.from_features(poly_low_elev, crs=crs_dem)
+gdf_low_elev = gdf_low_elev[~gdf_low_elev['val'].isnull()]
+
+# Dissolve all low-elevation polygons into set of disjoint areas
+# THINK: doesn't matter what the elevation value is, as long as it's low
+gdf_low_elev['val'] = 1
+gdf_low_elev = gdf_low_elev.dissolve(by='val').explode('geometry', ignore_index=True)
+
+# Only retain low-elevation polygons intersecting the preliminary AOI
+gdf_low_elev = gdf_low_elev[
+    gdf_low_elev.to_crs(crs_wgs84).intersects(
+        gs_prelim_aoi.union_all()
+    )
+]
+
+# Clip filtered low-elevation polygons to buffered admin bounds to fill holes
+gdf_low_elev = gdf_low_elev.to_crs(crs_wgs84).clip(
+    gdf_admin_bounds
+        .to_crs(crs_utm50n)
+        .buffer(100)
+        .to_crs(crs_wgs84)
+)
+
+# Dissolve the final result into a single MultiPolygon
+gs_low_elev = (
+    gdf_low_elev
+        .to_crs(crs_utm50n)
+        .buffer(50)
+        .to_crs(crs_wgs84)
+)
+
+# Plot all relevant layers for diagnostics
+ax = gs_low_elev.plot()
+gdf_admin_bounds.plot(ax=ax, color='lightgrey', alpha=0.4)
+gdf_osm_aoi.plot(ax=ax, color='darkgrey', alpha=0.4)
+gs_inland.plot(ax=ax, color='red', alpha=0.6)
+gs_offshore.plot(ax=ax, color='green', alpha=0.6)
+ax.set_xlim(bbox[0] + 0.1, bbox[2] + 0.025)
+ax.set_ylim(bbox[1] - 0.001, bbox[3] + 0.025)
+ax.set_xticklabels([])
+ax.set_yticklabels([])
+
+# Save figure
+fp_aoi_portions = plots_dir / f'{municipality}_PlotPortionsAOI.png'
+plt.tight_layout()
+plt.savefig(fp_aoi_portions)
+
+
+# --- SECTION 4: Combine all portions into final AOI ---
+
+
+# Combine all into a single MultiPolygon and clip to OSM admin bounds
+poly_aoi = gpd.GeoSeries(pd.concat(
+    [gs_inland, gs_offshore, gs_low_elev],
+    ignore_index=True
+)).clip(gdf_osm_aoi.to_crs(crs_wgs84)).union_all()
+
+# Convert to a single Polygon
+poly_aoi = Polygon(poly_aoi.exterior)
+
+# Convert to GeoDataFrame for export
+gdf_aoi = gpd.GeoDataFrame(
+    data=gdf_admin_bounds,
+    geometry=gpd.GeoSeries(poly_aoi).make_valid(),
+    crs=crs_wgs84
+)
+
+# Save to GeoJSON
+fp_output = output_dir / f'{municipality}_AOI_MangroveSeagrassMapping.geojson'
+gdf_aoi.to_file(fp_output)
