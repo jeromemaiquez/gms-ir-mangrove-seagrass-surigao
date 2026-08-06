@@ -22,6 +22,7 @@ con.execute('INSTALL spatial; LOAD spatial;')
 # Filepaths for ADM4 boundaries and S2Coast datasets
 fp_adm4 = Path(r"C:\\Users\\remot\Documents\\Jerome\\05_GIS_Data\\Vector Data\\Edge-Matched Global Subnational Boundaries\\adm4_polygons.parquet")
 fp_s2coast = Path(r"C:\\Users\\remot\\Documents\\Jerome\\05_GIS_Data\\Vector Data\\S2Coast\\S2Coast2023_ShapeFile_vector\\S2Coast-2023_Polyline_diss.shp")
+fp_s2coast_tiles = Path(r"C:\\Users\\remot\\Documents\\Jerome\\05_GIS_Data\\Vector Data\\S2Coast\\SupportVectorFiles\\Fishnet_1Dedgree.shp")
 
 # URL for FABDEM STAC catalog
 fabdem_catalog_url = 'https://huggingface.co/datasets/links-ads/fabdem-v12/raw/main/stac_catalog/catalog.json'
@@ -63,4 +64,36 @@ WHERE
 gdf_neighbors = gpd.GeoDataFrame.from_arrow(
     con.sql(query_neighbors).arrow()
 )
-print(gdf_neighbors.head())  
+# print(gdf_neighbors.head())
+
+# Create ocean mask for future clipping of offshore portion of AOI
+gs_ocean_mask = (
+    gdf_admin_bounds
+        .to_crs('EPSG:32651')
+        .buffer(5_000)
+        .to_crs(gdf_admin_bounds.crs)
+        .difference(gdf_admin_bounds)
+        .difference(gdf_neighbors.union_all())
+)
+
+# Query the S2Coast tile intersecting with the AOI
+query_coast = f"""
+SELECT *
+FROM '{str(fp_s2coast)}'
+WHERE Location IN (
+    SELECT t.Location
+    FROM '{str(fp_s2coast_tiles)}' AS t
+    JOIN arrow_admin_bounds AS a ON ST_Intersects(
+        t.geom, 
+        a.geometry
+    )
+)
+"""
+
+gdf_coast = gpd.GeoDataFrame.from_arrow(
+    con.sql(query_coast).arrow()
+).set_crs(gdf_admin_bounds.crs)
+# print(gdf_coast)
+
+# Download the OSM boundary (which contains both and land and sea territory) for future clipping
+gdf_osm_aoi = ox.geocode_to_gdf(f'{municipality}, {province}, Philippines')
