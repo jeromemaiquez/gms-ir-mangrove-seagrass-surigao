@@ -7,6 +7,7 @@ graph TD;
         E4[histplot_bands];
         E5[separability_pair];
         E6[rasterplot];
+        E7[time_series];
     end
     subgraph utils.py
         U1[aoi_from_admin];
