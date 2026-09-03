@@ -1,13 +1,13 @@
 ```mermaid
 graph TD;
-    subgraph eda.py
-        E1[spectral_signature];
-        E2[boxplot_bands];
-        E3[scatterplot_bands];
-        E4[histplot_bands];
-        E5[separability_pair];
-        E6[rasterplot];
-        E7[time_series];
+    subgraph plot.py
+        P1[spectral_signature];
+        P2[boxplot_bands];
+        P3[scatterplot_bands];
+        P4[histplot_bands];
+        P5[separability_pair];
+        P6[rasterplot];
+        P7[time_series];
     end
     subgraph utils.py
         U1[aoi_from_admin];

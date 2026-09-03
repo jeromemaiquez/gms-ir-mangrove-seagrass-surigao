@@ -20,20 +20,17 @@ def m_statistic(
     vegetation in the mid-IR: The 3.75 µm channels. IEEE Trans. 
     Geosci. Remote Sens, 32, pp.672-683.
 
-    Parameters
-    ----------
-    mean_a, mean_b: int | float
-        Mean values of class A and B
-    std_a, std_b: int | float
-        Standard deviations of class A and B.
+    Args:
+        mean_a, mean_b: Mean values of class A and B
+        std_a, std_b: Standard deviations of class A and B.
 
     Returns
-    -------
-    float
         M-statistic as a measure of separability.
     """
-
-    return np.abs(mean_a - mean_b) / (std_a + std_a)
+    if (std_a == 0) and (std_b == 0):
+        raise ValueError("Standard deviations cannot both be zero.")
+    
+    return np.abs(mean_a - mean_b) / (std_a + std_b)
 
 def _bhattacharyya(
     mean_a: int | float,
@@ -43,12 +40,27 @@ def _bhattacharyya(
 ) -> float:
     """
     Calculates the Bhattacharyya distance between two classes.
+
+    D_B = 1/4 * ln(1/4 * (std_a^2 / std_b^2) + (std_b^2 / std_a^2))
+    + (1/4 * (mean_a - mean_b)^2 / (std_a^2 + std_b^2))
+    
+    Formula source: https://medium.com/@yoavyeledteva/bhattacharyya
+    -distance-from-statistics-to-application-in-data-science-8eb5ccdbba62
     
     Source: Bhattacharya, A., 1946. On a measure of divergence
     between two multinomial populations. Sankhya: the Indian
     Journal of Statistics., pp.401-406.
-    """
 
+    Args:
+        mean_a, mean_b: Mean values of class A and B
+        std_a, std_b: Standard deviations of class A and B.
+
+    Returns
+        M-statistic as a measure of separability.
+    """
+    if (std_a == 0) and (std_b == 0):
+        raise ValueError("Standard deviations cannot both be zero.")
+    
     return (
         0.25 * np.log(0.25 * ((std_a**2 / std_b**2) + (std_b**2 / std_a**2) + 2))
         + (0.25 * ((mean_a - mean_b)**2 / (std_a**2 + std_b**2)))
@@ -66,6 +78,13 @@ def jm_distance(
 
     Source: Sen, R., Goswami, S., and Chakraborty, B., 2019. Jeffries-
     Matusita distance as a tool for feature selection.
+
+    Args:
+        mean_a, mean_b: Mean values of class A and B
+        std_a, std_b: Standard deviations of class A and B.
+
+    Returns
+        M-statistic as a measure of separability.
     """
     bhattacharyya = _bhattacharyya(mean_a, mean_b, std_a, std_b)
     return np.sqrt(2 * (1 - np.exp(-bhattacharyya)))
