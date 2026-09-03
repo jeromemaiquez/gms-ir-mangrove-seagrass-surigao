@@ -9,6 +9,7 @@ from matplotlib import colormaps
 from matplotlib.axes import Axes
 from matplotlib.patches import Patch, Ellipse
 
+import config
 
 def _subset_categories(
     data: pd.DataFrame,
@@ -29,7 +30,7 @@ def spectral_signature(
     category_column: str,
     value_column: str,
     band_column: str,
-    cat_palette: str | dict | None = None,
+    cat_palette: str | dict = config.PALETTE_LAND_COVER,
     cats_compared: list[str] | None = None,
     show_errorbar: bool = True,
     figsize: tuple[int,int] | None = None,
@@ -88,7 +89,7 @@ def boxplot_bands(
     category_column: str,
     value_column: str,
     band_column: str,
-    cat_palette: str | dict | None = None,
+    cat_palette: str | dict = config.PALETTE_LAND_COVER,
     cats_compared: list[str] | None = None,
     col_wrap: int | None = None,
     sharey: bool = False
@@ -140,6 +141,40 @@ def boxplot_bands(
 
     return g
 
+
+def histplot_1band(
+    data: pd.DataFrame,
+    band_x: str,
+    category_column: str,
+    cat_palette: str | dict = config.PALETTE_LAND_COVER,
+    cats_compared: list[str] | None = None
+) -> Axes:
+    """
+    Creates a histogram plot comparing distribution of `band_x` values
+    for two or more categories. Useful for visually assessing the overlap
+    and separability of different categories along a given variable.
+
+    Ensure that the input DataFrame is in wide format and NOT 'melted'.
+    See this pandas user guide on melting DataFrames for more info: 
+    https://pandas.pydata.org/docs/user_guide/reshaping.html#melt-and-wide-to-long
+
+    """
+    data_plot = _subset_categories(data, category_column, cats_compared)
+
+    # Ensure legend only shows target categories
+    plot_palette = None
+    if isinstance(cat_palette, dict) and cats_compared is not None:
+        plot_palette = {cat:cat_palette[cat] for cat in cats_compared}
+
+    ax = sns.histplot(
+        data=data_plot,
+        x=band_x,
+        hue=category_column,
+        palette=plot_palette
+    )
+
+    return ax
+ 
 
 def _confidence_ellipse(
     x: npt.ArrayLike, 
@@ -202,7 +237,7 @@ def scatterplot_bands(
     band_x: str,
     band_y: str,
     category_column: str,
-    cat_palette: str | dict | None = None,
+    cat_palette: str | dict = config.PALETTE_LAND_COVER,
     cats_compared: list[str] | None = None,
     confidence_ellipse: bool = True,
     n_std: float = 3.0
@@ -246,14 +281,10 @@ def scatterplot_bands(
         unique_cats = data_plot[category_column].unique()
         for i, cat in enumerate(unique_cats):
             # Edge color logic based on input cat_palette
-            try:
-                edgecolor = cat_palette[cat] # type: ignore
-            except TypeError:
-                if cat_palette is None:
-                    cmap = colormaps["tab10"]
-                elif isinstance(cat_palette, str):
-                    cmap = colormaps[cat_palette]
-
+            if isinstance(cat_palette, dict):
+                edgecolor = cat_palette[cat]
+            elif isinstance(cat_palette, str):
+                cmap = colormaps[cat_palette]
                 colors = cmap(np.linspace(0, 1, len(unique_cats)))
                 edgecolor = colors[i]
 
