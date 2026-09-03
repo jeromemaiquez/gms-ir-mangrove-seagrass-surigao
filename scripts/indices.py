@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import numpy.typing as npt
 import config
 
@@ -70,3 +71,30 @@ def normalized_difference_3band(
             raise ValueError("Band value arrays must have the same length/shape.")
 
     return ((s_a * band_a) + (s_b * band_b) + (s_c + band_c)) / (band_a + band_b + band_c + error_term) 
+
+
+def remove_outliers(
+    data: pd.DataFrame,
+    band_names: list[str]
+) -> pd.DataFrame:
+    """
+    Removes rows from a DataFrame if the values for ALL bands are outliers
+    (i.e., outside the interquartile range for a given band).
+
+    Args:
+        data: The input DataFrame.
+        band_names: The list of column names to remove outliers.
+    
+    Returns:
+        Another DataFrame with the outliers removed.
+    """
+
+    df = data.copy(deep=True)
+
+    q1 = df[band_names].quantile(0.25)
+    q3 = df[band_names].quantile(0.75)
+    iqr = q3 - q1
+
+    mask = ((df[band_names] >= (q1 - (1.5 * iqr))) | (df[band_names] <= (q3 + (1.5 * iqr)))).all(axis=1)
+    print('Number of outliers detected: ', np.sum(mask))
+    return df[mask].reset_index(drop=True)

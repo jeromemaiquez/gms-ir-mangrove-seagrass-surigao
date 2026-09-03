@@ -36,7 +36,7 @@ def spectral_signature(
     figsize: tuple[int,int] | None = None,
 ) -> Axes:
     """
-    Creates a pointplot showing the spectral signature of different
+    Creates a lineplot showing the spectral signature of different
     categories (e.g., land cover). Can also be used for non-spectral
     variables with ordinal names (e.g., principal components). 
 
@@ -67,18 +67,38 @@ def spectral_signature(
     """
     data_plot = _subset_categories(data, category_column, cats_compared)
 
-    errorbar = 'sd'
-    if show_errorbar == False:
-        errorbar = None
+    # Ensure legend only shows target categories
+    plot_palette = None
+    if isinstance(cat_palette, dict):
+        plot_palette = cat_palette
+        if cats_compared is not None:
+            plot_palette = {cat:cat_palette[cat] for cat in cats_compared}
 
-    ax = sns.pointplot(
+    errorbar = None
+    if show_errorbar:
+        errorbar = 'sd'
+
+    # ax = sns.pointplot(
+    #     data=data_plot,
+    #     y=value_column,
+    #     x=band_column,
+    #     hue=category_column,
+    #     palette=plot_palette,
+    #     errorbar=errorbar,
+    #     dodge=True,
+    #     linewidth=1.3
+    # )
+
+    ax = sns.lineplot(
         data=data_plot,
-        y=value_column,
         x=band_column,
+        y=value_column,
         hue=category_column,
-        palette=cat_palette,
+        palette=plot_palette,
+        marker="o",
+        linestyle="-",
         errorbar=errorbar,
-        dodge=True
+        err_style="band"
     )
 
     return ax
@@ -92,7 +112,8 @@ def boxplot_bands(
     cat_palette: str | dict = config.PALETTE_LAND_COVER,
     cats_compared: list[str] | None = None,
     col_wrap: int | None = None,
-    sharey: bool = False
+    sharey: bool = False,
+    show_outliers: bool = False
 ) -> sns.FacetGrid:
     """
     Creates a FacetGrid of boxplots where axes represent different 
@@ -136,7 +157,8 @@ def boxplot_bands(
         col=band_column,
         palette=cat_palette,
         col_wrap=col_wrap,
-        sharey=sharey
+        sharey=sharey,
+        showfliers=show_outliers
     )
 
     return g
@@ -176,8 +198,10 @@ def histplot_1band(
 
     # Ensure legend only shows target categories
     plot_palette = None
-    if isinstance(cat_palette, dict) and cats_compared is not None:
-        plot_palette = {cat:cat_palette[cat] for cat in cats_compared}
+    if isinstance(cat_palette, dict):
+        plot_palette = cat_palette
+        if cats_compared is not None:
+            plot_palette = {cat:cat_palette[cat] for cat in cats_compared}
 
     ax = sns.histplot(
         data=data_plot,
