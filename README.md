@@ -10,10 +10,10 @@
 
 ## Objectives
  
-### *Delineate mangrove and seagrass extent for target years in Surigao del Sur using high-resolution PlanetScope imagery* 
+### *Delineate mangrove extent for target years in Surigao del Sur using high-resolution PlanetScope imagery* 
 
-- Develop a spectral index to detect (a) mangrove and (b) seagrass using PlanetScope bands (i.e., VNIR)
-- Delineate mangrove and seagrass extent for target years in Hinatuan, Surigao del Sur using the developed spectral index[^1]
+- Develop and assess spectral indices to detect mangrove extent using PlanetScope bands (i.e., VNIR)
+- Delineate mangrove extent for target years in Hinatuan, Surigao del Sur using the developed spectral index[^1]
 - Apply the mangrove & seagrass detection method to imagery for other years
 
 [^1]: NOTE: either via thresholding or supervised classification, depending on index performance
@@ -26,9 +26,14 @@
 - Aggregated statistics per barangay and locally-managed marine protected area (LMMPA)
 
 ## In this Repository:
-
+ 
 - `generate_aoi.py`: Automatically generates the AOI (coastal land and sea) given a city/municipality
 - `fabdem.py`: Loads FABDEM data in a STAC-like manner (from `utils.py` of `fabdem-v12` STAC endpoint via Hugging Face (https://huggingface.co/datasets/links-ads/fabdem-v12))
-- `run_t-test.py`: Runs independent-sample t-tests to measure the differentiability of land cover classes for different spectral indices
-- `spectral_signature.py`: Visualizes the spectral signature of different land cover classes (for initial data exploration)
+- `plot.py`: Plotting functions for exploratory data analysis of reflectance values and assessment of spectral indices
+- `validate.py`: Functions for performing validation outside model accuracy estimation (e.g., IoU, separability metrics, etc.)
+- Others to be added in the future...
+
+## Open Questions:
+
+- Perform automated label-free sample annotation? Or rely on external labeled data (e.g., QGIS labeled random sampling model) for now?
 - Others to be added in the future...

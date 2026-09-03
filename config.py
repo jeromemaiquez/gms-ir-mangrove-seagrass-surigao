@@ -9,3 +9,5 @@ PALETTE_LAND_COVER = {
     'Built-up': '#fe0000',
     'Grassland': '#97474a'
 }
+
+DENOMINATOR_ERROR_TERM = 10**(-6)
