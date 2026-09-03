@@ -8,7 +8,7 @@ def normalized_difference_2band(
     band_a: npt.ArrayLike,
     band_b: npt.ArrayLike,
     error_term: float = config.DENOMINATOR_ERROR_TERM
-) -> npt.ArrayLike:
+) -> npt.NDArray:
     """
     Calculates the normalized difference between two arrays `band_a` and
     `band_b` element-wise. The arrays must have the same shape.
@@ -35,7 +35,7 @@ def normalized_difference_3band(
     band_c: npt.ArrayLike,
     which_negative: str,
     error_term: float = config.DENOMINATOR_ERROR_TERM
-) -> npt.ArrayLike:
+) -> npt.NDArray:
     """
     Calculates the normalized difference between three arrays `band_a`, `band_b`, 
     and `band_c` (all with the same shape), following the general formula:
@@ -75,15 +75,18 @@ def normalized_difference_3band(
 
 def remove_outliers(
     data: pd.DataFrame,
-    band_names: list[str]
+    band_names: list[str],
+    impute: bool = False,
 ) -> pd.DataFrame:
     """
-    Removes rows from a DataFrame if the values for ALL bands are outliers
+    Removes/imputes rows from a DataFrame if the values for ALL bands are outliers
     (i.e., outside the interquartile range for a given band).
 
     Args:
         data: The input DataFrame.
         band_names: The list of column names to remove outliers.
+        impute: If True, replaces outliers with the median value.
+            If left False, will simply remove outliers.
     
     Returns:
         Another DataFrame with the outliers removed.
@@ -93,8 +96,14 @@ def remove_outliers(
 
     q1 = df[band_names].quantile(0.25)
     q3 = df[band_names].quantile(0.75)
+    median = df[band_names].quantile(0.5)
     iqr = q3 - q1
 
     mask = ((df[band_names] >= (q1 - (1.5 * iqr))) | (df[band_names] <= (q3 + (1.5 * iqr)))).all(axis=1)
     print('Number of outliers detected: ', np.sum(mask))
-    return df[mask].reset_index(drop=True)
+
+    if impute == False:
+        return df[mask].reset_index(drop=True)
+
+    df.loc[~mask, band_names] = median
+    return df
