@@ -1,6 +1,5 @@
 import numpy as np
 import numpy.typing as npt
-import numexpr as ne
 import config
 
 
@@ -71,4 +70,3 @@ def normalized_difference_3band(
             raise ValueError("Band value arrays must have the same length/shape.")
 
     return ((s_a * band_a) + (s_b * band_b) + (s_c + band_c)) / (band_a + band_b + band_c + error_term) 
-    ...

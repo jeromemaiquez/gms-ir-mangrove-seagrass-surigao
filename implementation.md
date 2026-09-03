@@ -16,7 +16,7 @@ graph TD;
     end
     subgraph indices.py
         I1[sample_bands];
-        I2[index_from_expr];
+        I2[index_from_expression];
         I3[normalized_difference_2band];
         I4[band_ratio];
         I5[normalized_difference_3band];
