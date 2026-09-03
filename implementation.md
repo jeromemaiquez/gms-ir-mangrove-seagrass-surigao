@@ -5,7 +5,7 @@ graph TD;
         P2[boxplot_bands];
         P3[scatterplot_bands];
         P4[histplot_bands];
-        P5[separability_pair];
+        P5[separability_2class];
         P6[rasterplot];
         P7[time_series];
     end

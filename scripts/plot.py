@@ -158,6 +158,19 @@ def histplot_1band(
     See this pandas user guide on melting DataFrames for more info: 
     https://pandas.pydata.org/docs/user_guide/reshaping.html#melt-and-wide-to-long
 
+    Args:
+        data: pd.DataFrame containing the values to plot
+        band_x: Variabl to be plotted along the x-axis
+        category_column: Column name for the categories, each with a histogram
+        band_column: Column name for the x-axis categories (e.g., bands)
+        cat_palette: Colors to use for the different categories. Either a
+            dict of category:color pairs or a matplotlib/seaborn colormap.
+            If left None, default seaborn colormap will be used.
+        cats_compared: List of categories to include in the boxplot.
+            If left None, all categories will be included.
+
+    Returns:
+        A matplotlib Axes of the histogram plot.
     """
     data_plot = _subset_categories(data, category_column, cats_compared)
 
@@ -298,5 +311,46 @@ def scatterplot_bands(
                 edgecolor=edgecolor,
                 linewidth=2
             )
+
+    return ax
+
+
+def separability_2class(
+    data_separability: pd.DataFrame,
+    separability_column: str,
+    band_column: str,
+    threshold: int | float | None = None,
+    n_bands_plot: int = 20
+) -> Axes:
+    """
+    Creates a barplot showing the separability metric values for different
+    bands/indices. Also provides the option to plot a line showing the
+    threshold for which the two classes can be deemed sufficiently separable.
+
+    Args:
+        data_separability: pd.DataFrame of band/index names & separability values
+        separability_column: Column name for the separability values
+        band_column: Column name for the different bands/indices to assess
+        threshold: Value beyond which separability is deemed sufficient
+
+    Returns:
+        A matplotlib Axes of the separability barplot.
+    """
+    # Set number of bands/indices to show in plot
+    band_names = data_separability[band_column].unique()
+    n_bands_plot = min(len(band_names), n_bands_plot)
+
+    # Sort bands/indices by separability metric value (for easier interpretation)
+    data_plot = data_separability.sort_values(by=separability_column, ascending=False).head(n_bands_plot)
+
+    ax = sns.barplot(
+        data=data_plot,
+        x=band_column,
+        y=separability_column
+    )
+    ax.tick_params(axis='x', labelrotation=45, labelsize=12)
+
+    if threshold is not None:
+        ax.axhline(threshold, linestyle='--')
 
     return ax
