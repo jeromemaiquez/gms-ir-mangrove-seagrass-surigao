@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import numpy.typing as npt
+from sklearn.neighbors import NeighborhoodComponentsAnalysis as NCA
 import subprocess
 import config
 from pathlib import Path
@@ -42,13 +43,14 @@ def normalized_difference_3band(
     Calculates the normalized difference between three arrays `band_a`, `band_b`, 
     and `band_c` (all with the same shape), following the general formula:
     
-    (s_a*band_a + s_b*band_b + s_c*band_c) / (band_a + band_b + band_c)
+    ND3 = (s_a*band_a + s_b*band_b + s_c*band_c) / (band_a + band_b + band_c + error_term)
 
     where (s_a, s_b, s_c) are sign patterns with exactly one negative term.
-    The arg `which_negative` controls which term is negative.
+    The arg `which_negative` controls which term is negative: s_a, s_b, or s_c.
 
     Args:
         band_a, band_b, band_c: Input arrays with the same shape
+        which_negative: Controls which band is negative ('a', 'b', or 'c').
         error_term: Error term to prevent zero division.
 
     Returns:
@@ -73,6 +75,39 @@ def normalized_difference_3band(
             raise ValueError("Band value arrays must have the same length/shape.")
 
     return ((s_a * band_a) + (s_b * band_b) + (s_c + band_c)) / (band_a + band_b + band_c + error_term) 
+
+
+def normalized_curve(
+    band_a: npt.ArrayLike,
+    band_b: npt.ArrayLike,
+    band_c: npt.ArrayLike,
+    error_term: float = config.DENOMINATOR_ERROR_TERM
+) -> npt.NDArray:
+    """
+    Calculates the spectral curvature around a middle band `band_b` relative
+    to its neighbors `band_a` and `band_c`, following the general formula:
+    
+    NCurv = (band_a - 2*band_b + band_c) / (band_a + band_b + band_c + error_term)
+
+    The numerator is a discrete second derivative at `band_b`: values near zero
+    means the curve is locally linear, while positive/negative signs indicate
+    convexity or concavity of the spectral curvature.
+
+    Args:
+        band_a, band_b, band_c: Input arrays with the same shape
+        error_term: Error term to prevent zero division.
+
+    Returns:
+        Array of normalized difference values with same shape as inputs.    
+    """
+    band_a = np.asarray(band_a).astype(float)
+    band_b = np.asarray(band_b).astype(float)
+    band_c = np.asarray(band_c).astype(float)
+
+    if band_a.shape != band_b.shape != band_c.shape:
+            raise ValueError("Band value arrays must have the same length/shape.")
+
+    return (band_a - (2 * band_b) + band_c) / (band_a + band_b + band_c + error_term) 
 
 
 def remove_outliers(
@@ -203,3 +238,57 @@ def spectral_feature_polynomial(
         'median_accuracy': median_accuracy,
         'min_accuracy': min_accuracy
     }
+
+def neighborhood_components(
+    data: pd.DataFrame,
+    category_column: str,
+    band_names: list[str],
+    n_components: int = 3,
+    return_components: bool = True
+) -> pd.DataFrame | tuple[pd.DataFrame, npt.NDArray]:
+    """
+    Performs neighborhood component analysis (NCA) on labeled multispectral 
+    data. NCA is a machine learning algorithm that learns a linear
+    transformation in a supervised fashion to improve the classification
+    accuracy of a nearest neighbors rule in that transformed space.
+
+    Read more in the scikit-learn documentation: https://scikit-learn.org/stable/modules/neighbors.html#nca
+
+    Args:
+        data: The input DataFrame.
+        category_column: Column name for the categories (e.g., land cover)
+        band_names: The list of column names to remove outliers.
+        n_components: Number of components/variables to include in the result.
+        return_components: Return an array of the coefficients for the learned
+            linear transformation alongside the result DataFrame. These are used
+            as coefficients in a weighted sum to transform the values.
+    
+    Returns:
+        A DataFrame of the component values for each sample. If `return_components`
+            is set to True, returns a tuple with the DataFrame, and the coefficients.
+    """
+    df = data.copy(deep=True)
+    df[category_column] = df[category_column].astype('category')
+
+    X = df[band_names]
+    y = df[category_column].cat.codes
+    target_names = df[category_column]
+    nc_col_names = [f'nc{i+1}' for i in range(n_components)]
+
+    nca = NCA(n_components=n_components)
+    nca.fit(X, y)
+    component_coeffs = nca.components_
+
+    X_nca = nca.fit_transform(X, y)
+    df_nca = pd.DataFrame(
+        data=X_nca,
+        columns=nc_col_names
+    )
+    df_nca[category_column] = target_names
+
+    df_nca = df_nca[[category_column] + nc_col_names]
+
+    if return_components:
+        return (df_nca, component_coeffs)
+
+    return df_nca

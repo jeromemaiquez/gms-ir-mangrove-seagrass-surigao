@@ -235,8 +235,8 @@ def _confidence_ellipse(
     Returns:
         The Ellipse object (of type Patch) added to `ax`.
     """
-    x = np.asarray(x)
-    y = np.asarray(y)
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
 
     if x.size != y.size:
         raise ValueError("x and y must be the same size")
