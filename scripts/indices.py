@@ -153,6 +153,10 @@ def spectral_feature_polynomial(
         band_names: List of band column names to include in the search
         fp_script: Filepath to the `sfp_satellite.py` script. Set by default
             to the filepath configured inside `config.py`.
+
+    Returns:
+        A dictionary of the best-performing indices, number of folds where
+        it performed the best, and accuracy metrics.
     """
     # Set up the args for the Python script
     args_list = [
@@ -187,9 +191,9 @@ def spectral_feature_polynomial(
     # Extract relevant results and put them in a dictionary
     result_list = result.splitlines()
 
-    best_index = result_list[17].split()[1]
+    best_index = result_list[17].split()[1] # Index always on 18th line
     _, _, n_folds, mean_accuracy, median_accuracy, min_accuracy = tuple(
-        result_list[21].split()
+        result_list[-1].split()     # Accuracy results are always on last line
     )
 
     return {
