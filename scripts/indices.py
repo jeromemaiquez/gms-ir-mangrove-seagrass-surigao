@@ -239,6 +239,7 @@ def spectral_feature_polynomial(
         'min_accuracy': min_accuracy
     }
 
+
 def neighborhood_components(
     data: pd.DataFrame,
     category_column: str,

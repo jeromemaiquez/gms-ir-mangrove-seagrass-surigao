@@ -119,6 +119,7 @@ def m_statistic(
     
     return np.abs(mean_a - mean_b) / (std_a + std_b)
 
+
 def _bhattacharyya(
     mean_a: int | float,
     mean_b: int | float,
@@ -152,6 +153,7 @@ def _bhattacharyya(
         0.25 * np.log(0.25 * ((std_a**2 / std_b**2) + (std_b**2 / std_a**2) + 2))
         + (0.25 * ((mean_a - mean_b)**2 / (std_a**2 + std_b**2)))
     )
+
 
 def jm_distance(
     mean_a: int | float,
