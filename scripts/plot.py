@@ -374,6 +374,10 @@ def separability_2class(
     )
     ax.tick_params(axis='x', labelrotation=45, labelsize=12)
 
+    # Add data value labels for easier interpretation
+    for container in ax.containers:
+        ax.bar_label(container, fmt="%.3f") # type: ignore
+
     if threshold is not None:
         ax.axhline(threshold, linestyle='--')
 
