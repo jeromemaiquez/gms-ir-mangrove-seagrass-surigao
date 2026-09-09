@@ -301,8 +301,10 @@ def scatterplot_bands(
             If left None, default seaborn colormap will be used.
         cats_compared: List of categories to include in the boxplot.
             If left None, all categories will be included.
-        show_errorbar: If True, shows the standard deviation of all
-            values for a given "band" as the errorbar. Hidden if False.
+        confidence_ellipse: If True, adds confidence ellipses to the plot.
+            This better shows the shape of the per-class distribution.
+        n_std: Scale factor for the standard distance, which is used to
+            control the radii of the ellipse's major & minor axis.
     """
     data_plot = _subset_categories(data, category_column, cats_compared)
 

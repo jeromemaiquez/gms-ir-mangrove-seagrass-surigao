@@ -144,7 +144,7 @@ def _bhattacharyya(
         std_a, std_b: Standard deviations of class A and B.
 
     Returns
-        M-statistic as a measure of separability.
+        Bhattacharyya distance as a measure of separability.
     """
     if (std_a == 0) and (std_b == 0):
         raise ValueError("Standard deviations cannot both be zero.")
@@ -173,7 +173,7 @@ def jm_distance(
         std_a, std_b: Standard deviations of class A and B.
 
     Returns
-        M-statistic as a measure of separability.
+        Jeffries-Matusita distance as a measure of separability.
     """
     bhattacharyya = _bhattacharyya(mean_a, mean_b, std_a, std_b)
     return np.sqrt(2 * (1 - np.exp(-bhattacharyya)))
