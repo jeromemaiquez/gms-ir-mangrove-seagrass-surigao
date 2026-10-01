@@ -150,21 +150,91 @@ def merge_bounds_layers(
     return gdf_merged
 
 
+def get_maritime_bounds(
+    con: duckdb.DuckDBPyConnection,
+    fp_maritime: str | Path,
+    province: str,
+    muni_names: list[str]
+):
+    """
+    Returns a GeoDataFrame of the target municipalities queried
+    from an administrative boundaries dataset via DuckDB.
+
+    Args:
+        con: Active DuckDB connection
+        fp_maritime: Filepath to the maritime boundaries dataset
+        province: Name of the province where the municipalities are
+        muni_names: List of city/municipality names
+    
+    Returns:
+        A geopandas.GeoDataFrame of the results.
+
+    Raises:
+        KeyError if no municipalities match province and muni_names
+    """
+    muni_names_sql = ','.join([f"'{muni}'" for muni in muni_names])
+
+    query_maritime = f"""
+    SELECT *
+    FROM '{str(fp_maritime)}'
+    WHERE
+        ADM2_EN = '{province}'        AND
+        ADM3_EN IN ({muni_names_sql})
+    """
+
+    gdf_maritime = gpd.GeoDataFrame.from_arrow(
+        con.sql(query_maritime).arrow()
+    ).dissolve().rename(columns={'geom': 'geometry'}).set_geometry('geometry')
+
+    if len(gdf_maritime) == 0:
+        raise KeyError("No municipalities matched the provided province and muni_names.")
+
+    return gdf_maritime
+
+
+def merge_land_maritime(
+    gdf_land: gpd.GeoDataFrame,
+    gdf_maritime: gpd.GeoDataFrame
+):
+    """
+    Returns a GeoDataFrame merging the terrestrial and maritime administrative
+    boundaries of a given target AOI(s).
+
+    Args:
+        gdf_land: GeoDataFrame of terrestrial administrative boundaries
+        gdf_maritime: GeoDataFrame of maritime administrative boundaries
+    
+    Returns:
+        A geopandas.GeoDataFrame of the results.
+    """
+    gdf_maritime = gdf_maritime.to_crs(gdf_land.crs)
+
+    gdf_combined = gpd.GeoDataFrame(
+        pd.concat([gdf_land, gdf_maritime], ignore_index=True),
+        geometry='geometry',
+        crs=gdf_land.crs
+    )
+
+    return gdf_combined
+
+
 def extract_coastline(
         gdf_bounds: gpd.GeoDataFrame,
         gdf_neighbors: gpd.GeoDataFrame,
+        gdf_merged: gpd.GeoDataFrame
     ):
     """
-    Returns a GeoDataFrame with LineString geometry representing the target
+    Returns a GeoSeries with LineString geometry representing the target
     AOI's coastline (i.e., borders that touch the sea). This is done by removing
-    all the boundary line segments that border the AOI's neighbors.
+    all the boundary line segments that border the AOI's neighbors. The remaining
+    line segments are then clipped to the combined land-maritime boundary dataset.
 
     Args:
         gdf_bounds: GeoDataFrame of the target AOI thus far
         gdf_neighbors: GeoDataFrame of the AOI's neighboring municipalities
     
     Returns:
-        A geopandas.GeoDataFrame of the results.
+        A geopandas.GeoSeries of the results.
     """
 
     # Explode AOI boundaries into individual segments and remove those bordering neighbors
@@ -178,4 +248,7 @@ def extract_coastline(
         crs=gdf_bounds.crs
     )
 
-    return gdf_coast
+    gs_coast = gdf_coast.clip(gdf_merged).geometry
+    return gs_coast
+
+
