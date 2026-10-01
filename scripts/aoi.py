@@ -116,3 +116,66 @@ def get_neighbor_bounds(
         ).set_geometry('geometry')
 
     return gdf_neighbors
+
+
+def merge_bounds_layers(
+    gdf_with_islands: gpd.GeoDataFrame,
+    gdf_no_islands: gpd.GeoDataFrame
+):
+    """
+    Returns a GeoDataFrame merging two original administrative boundaries
+    datasets, one of which includes small islands. This function is designed
+    to harness both the more accurate boundaries of the NAMRIA dataset while
+    including the small islands in the Edge-Matched dataset.
+
+    Args:
+        gdf_with_islands: GeoDataFrame that includes islands (e.g., Edge-Matched)
+        gdf_no_islands: GeoDataFrame that lacks islands (e.g., NAMRIA)
+    
+    Returns:
+        A geopandas.GeoDataFrame of the results.
+    """
+    gdf_no_islands = gdf_no_islands.to_crs(gdf_with_islands.crs)
+
+    gdf_small_islands = gdf_with_islands.explode()[
+        ~gdf_with_islands.explode().intersects(gdf_no_islands.geometry)
+    ]
+
+    gdf_merged = gpd.GeoDataFrame(
+        pd.concat([gdf_no_islands, gdf_small_islands], ignore_index=True),
+        geometry='geometry',
+        crs=gdf_with_islands.crs
+    ).dissolve()
+
+    return gdf_merged
+
+
+def extract_coastline(
+        gdf_bounds: gpd.GeoDataFrame,
+        gdf_neighbors: gpd.GeoDataFrame,
+    ):
+    """
+    Returns a GeoDataFrame with LineString geometry representing the target
+    AOI's coastline (i.e., borders that touch the sea). This is done by removing
+    all the boundary line segments that border the AOI's neighbors.
+
+    Args:
+        gdf_bounds: GeoDataFrame of the target AOI thus far
+        gdf_neighbors: GeoDataFrame of the AOI's neighboring municipalities
+    
+    Returns:
+        A geopandas.GeoDataFrame of the results.
+    """
+
+    # Explode AOI boundaries into individual segments and remove those bordering neighbors
+    gdf_border_segments = gdf_bounds.explode()
+    gdf_border_segments['geometry'] = gdf_border_segments.geometry.apply(lambda geom: geom.exterior)
+    gdf_border_segments = gdf_border_segments.explode().difference(gdf_neighbors.geometry)
+
+    gdf_coast = gpd.GeoDataFrame(
+        data=gdf_bounds,
+        geometry=[gdf_border_segments.union_all().simplify(0.0002)],
+        crs=gdf_bounds.crs
+    )
+
+    return gdf_coast
