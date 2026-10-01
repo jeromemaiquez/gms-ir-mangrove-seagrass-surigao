@@ -5,7 +5,7 @@ import osmnx as ox
 import rioxarray as rxr
 
 from shapely import to_geojson
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Polygon, MultiPolygon
 from rasterio.features import shapes
 import matplotlib.pyplot as plt
 
@@ -31,19 +31,24 @@ output_dir = work_dir / 'output'
 
 # Filepaths for ADM4 boundaries and S2Coast datasets
 fp_adm4 = Path(r"C:\\Users\\remot\Documents\\Jerome\\05_GIS_Data\\Vector Data\\Edge-Matched Global Subnational Boundaries\\adm4_polygons.parquet")
+fp_namria = Path(r"C:\\Users\\remot\\Documents\\Jerome\\05_GIS_Data\\Vector Data\\PH Admin Bounds\\phl_admbnda_adm3_psa_namria_20231106.shp")
+fp_maritime = Path(r"C:\\Users\\remot\\Documents\\Jerome\\05_GIS_Data\\Vector Data\\PH Maritime Boundaries per Municipality\\PH_MaritimeBound_PerMuni_NAMRIA.parquet")
 fp_s2coast = Path(r"C:\\Users\\remot\\Documents\\Jerome\\05_GIS_Data\\Vector Data\\S2Coast\\S2Coast2023_ShapeFile_vector\\S2Coast-2023_Polyline_diss.shp")
 fp_s2coast_tiles = Path(r"C:\\Users\\remot\\Documents\\Jerome\\05_GIS_Data\\Vector Data\\S2Coast\\SupportVectorFiles\\Fishnet_1Dedgree.shp")
 
 # URL for FABDEM STAC catalog
-fabdem_catalog_url = 'https://huggingface.co/datasets/links-ads/fabdem-v12/raw/main/stac_catalog/catalog.json'
+# fabdem_catalog_url = 'https://huggingface.co/datasets/links-ads/fabdem-v12/raw/main/stac_catalog/catalog.json'
+fabdem_catalog_url = 'https://huggingface.co/datasets/links-ads/fabdem-v12/resolve/main/collection.json'
 
 # Set province and municipality name for AOI
-province = 'Surigao del Sur'
-municipality = 'Hinatuan'
+province = 'Palawan'
+municipality = ['Araceli']
 
 
 # --- SECTION 1: Preparing input layers ---
 
+# Parse municipality names for SQL
+muni_names_sql = ','.join([f"'{muni}'" for muni in municipality])
 
 # Query boundaries of target municipality
 query_admin_bounds = f"""
@@ -52,12 +57,12 @@ FROM '{str(fp_adm4)}'
 WHERE
     adm0_name = 'Philippines'       AND
     adm2_name = '{province}'        AND
-    adm3_name = '{municipality}'
+    adm3_name IN ({muni_names_sql})
 """
 
 gdf_admin_bounds = gpd.GeoDataFrame.from_arrow(
     con.sql(query_admin_bounds).arrow()
-)
+).dissolve()
 # print(gdf_admin_bounds.head())
 
 # Define CRSs for future buffering and matching
@@ -66,6 +71,22 @@ crs_utm50n = 'EPSG:32651'
 
 # Convert admin bounds GeoDataFrame back to GeoArrow for future DuckDB queries
 arrow_admin_bounds = gdf_admin_bounds.to_arrow()
+
+# Query boundaries (for NAMRIA dataset)
+# con.execute("SET gdal_config_options = 'OGR_SHAPE_NULL_AS_EMPTY=NO';")
+query_admin_namria = f"""
+SELECT *
+FROM ST_Read('{str(fp_namria)}')
+WHERE
+    ADM2_EN = '{province}'        AND
+    ADM3_EN IN ({muni_names_sql})
+"""
+
+gdf_admin_namria = gpd.GeoDataFrame.from_arrow(
+    con.sql(query_admin_namria).arrow()
+).dissolve().rename(columns={'geom': 'geometry'}).set_geometry('geometry')
+
+arrow_admin_namria = gdf_admin_namria.to_arrow()
 
 # Query neighbors of target municipality (to ensure AOI only falls inside target)
 query_neighbors = f"""
@@ -76,13 +97,30 @@ JOIN arrow_admin_bounds ON ST_Intersects(
     arrow_admin_bounds.geometry
 )
 WHERE
-    adm4_polygons.adm3_name != '{municipality}'
+    adm4_polygons.adm3_name NOT IN ({muni_names_sql})
 """
 
 gdf_neighbors = gpd.GeoDataFrame.from_arrow(
     con.sql(query_neighbors).arrow()
 )
 # print(gdf_neighbors.head())
+
+query_neighbors_namria = f"""
+SELECT phl_admbnda_adm3_psa_namria_20231106.*
+FROM ST_Read('{str(fp_namria)}') AS phl_admbnda_adm3_psa_namria_20231106
+JOIN arrow_admin_namria ON ST_Intersects(
+    phl_admbnda_adm3_psa_namria_20231106.geom,
+    arrow_admin_namria.geometry
+)
+WHERE
+    phl_admbnda_adm3_psa_namria_20231106.ADM3_EN NOT IN ({muni_names_sql})
+"""
+
+gdf_neighbors_namria = gpd.GeoDataFrame.from_arrow(
+    con.sql(query_neighbors_namria).arrow()
+).rename(columns={'geom': 'geometry'}).set_geometry('geometry')
+
+# gdf_neighbors_namria.to_file(output_dir / f'{municipality[0]}_Neighbors_NAMRIA.geojson')
 
 # Create ocean mask for future clipping of offshore portion of AOI
 gs_ocean_mask = (
@@ -95,30 +133,96 @@ gs_ocean_mask = (
 )
 
 # Query the S2Coast tile intersecting with the AOI
-query_coast = f"""
-SELECT *
-FROM '{str(fp_s2coast)}'
-WHERE Location IN (
-    SELECT t.Location
-    FROM '{str(fp_s2coast_tiles)}' AS t
-    JOIN arrow_admin_bounds AS a ON ST_Intersects(
-        t.geom, 
-        a.geometry
-    )
-)
-"""
+# query_coast = f"""
+# SELECT *
+# FROM '{str(fp_s2coast)}'
+# WHERE Location IN (
+#     SELECT t.Location
+#     FROM '{str(fp_s2coast_tiles)}' AS t
+#     JOIN arrow_admin_bounds AS a ON ST_Intersects(
+#         t.geom, 
+#         a.geometry
+#     )
+# )
+# """
 
-gdf_coast = gpd.GeoDataFrame.from_arrow(
-    con.sql(query_coast).arrow()
-).set_crs(crs_wgs84)
+# gdf_coast = gpd.GeoDataFrame.from_arrow(
+#     con.sql(query_coast).arrow()
+# ).set_crs(crs_wgs84)
+# print(gdf_coast.head())
 # print(gdf_coast)
 
+# Merge edge-matched dataset's small islands with NAMRIA borders and use as AOI
+gdf_small_islands = gdf_admin_bounds.explode()[
+    ~gdf_admin_bounds.explode().intersects(gdf_admin_namria.to_crs(crs_wgs84))
+]
+gdf_admin_bounds = gpd.GeoDataFrame(
+    pd.concat([gdf_admin_namria.to_crs(crs_wgs84), gdf_small_islands], ignore_index=True),
+    geometry='geometry',
+    crs=crs_wgs84
+).dissolve()
+
+# gdf_admin_bounds.to_file(output_dir / f'{municipality[0]}_AOIwithSmallIslands.geojson')
+
+gdf_border_segments = gdf_admin_bounds.explode()
+gdf_border_segments['geometry'] = gdf_border_segments.geometry.apply(lambda geom: geom.exterior)
+gdf_border_segments = gdf_border_segments.explode().difference(gdf_neighbors_namria.to_crs(crs_wgs84).union_all())
+# gdf_border_segments = gdf_border_segments[
+#     (gdf_border_segments.disjoint(gdf_neighbors_namria.to_crs(crs_wgs84).union_all()))
+#     | (gdf_border_segments.touches(gdf_neighbors_namria.to_crs(crs_wgs84).union_all()))
+# ]
+
+# gdf_border_segments.to_file(output_dir / f'{municipality[0]}_BorderSegments.geojson')
+
+# Extract coastline
+gdf_coast = gpd.GeoDataFrame(
+    data=gdf_admin_bounds,
+    geometry=[gdf_border_segments.union_all().simplify(0.0002)],
+    crs=crs_wgs84
+)
+
+# print(gdf_coast.head())
+
 # Download the OSM boundary (which contains both and land and sea territory) for future clipping
-gdf_osm_aoi = ox.geocode_to_gdf(f'{municipality}, {province}, Philippines')
+# osm_muni_queries = []
+# for muni in municipality:
+#     osm_muni_queries.append(f'{muni}, {province}, Philippines')
+# # for muni in [municipality[0]]:
+# #     osm_muni_queries.append(f'{muni} Island, {province}, Philippines')
+
+# gdf_osm_aoi = ox.geocode_to_gdf(osm_muni_queries, which_result=1)
+
+query_maritime = f"""
+SELECT *
+FROM '{str(fp_maritime)}'
+WHERE
+    ADM2_EN = '{province}'        AND
+    ADM3_EN IN ({muni_names_sql})
+"""
+
+gdf_maritime = gpd.GeoDataFrame.from_arrow(
+    con.sql(query_maritime).arrow()
+).dissolve().rename(columns={'geom': 'geometry'}).set_geometry('geometry')
+
+gdf_osm_aoi = gpd.GeoDataFrame(
+    pd.concat([gdf_admin_bounds, gdf_maritime.to_crs(crs_wgs84)], ignore_index=True),
+    geometry='geometry',
+    crs=crs_wgs84
+).dissolve()
+
+gdf_osm_aoi.to_file(output_dir / f'{municipality[0]}_CombinedAOIwithHoles.geojson')
+
+# if isinstance(gdf_osm_aoi.geometry.values[0], MultiPolygon):
+#     gdf_osm_aoi['geometry'] = MultiPolygon([poly.exterior for poly in gdf_osm_aoi.geometry.values[0].geoms])
+# elif isinstance(gdf_osm_aoi.geometry.values[0], Polygon):
+#     gdf_osm_aoi['geometry'] = Polygon(gdf_osm_aoi.geometry.values[0].exterior)
+
+# gdf_osm_aoi.to_file(output_dir / f'{municipality[0]}_CombinedAOI.geojson')
+# print(gdf_osm_aoi.head())
 
 # Get coastline clipped to OSM boundaries
-gs_coastline = gdf_coast.clip(gdf_osm_aoi.to_crs(gdf_coast.crs)).geometry
-
+gs_coastline = gdf_coast.clip(gdf_osm_aoi).geometry
+# gs_coastline = gdf_coast.geometry
 
 # --- SECTION 2: Generate inland & offshore portions of AOI ---
 
@@ -231,7 +335,7 @@ ax.set_xticklabels([])
 ax.set_yticklabels([])
 
 # Save figure
-fp_aoi_portions = plots_dir / f'{municipality}_PlotPortionsAOI.png'
+fp_aoi_portions = plots_dir / f'{municipality[0].replace(" ", "")}_PlotPortionsAOI.png'
 plt.tight_layout()
 plt.savefig(fp_aoi_portions)
 
@@ -241,20 +345,54 @@ plt.savefig(fp_aoi_portions)
 
 # Combine all into a single MultiPolygon and clip to OSM admin bounds
 poly_aoi = gpd.GeoSeries(pd.concat(
-    [gs_inland, gs_offshore, gs_low_elev],
+    [
+        gs_inland, 
+        # gs_offshore, 
+        gs_low_elev
+    ],
     ignore_index=True
-)).clip(gdf_osm_aoi.to_crs(crs_wgs84)).union_all()
+)).clip(gdf_osm_aoi.to_crs(crs_wgs84)).to_crs(crs_utm50n).union_all()
+# print(poly_aoi)
 
 # Convert to a single Polygon
-poly_aoi = Polygon(poly_aoi.exterior)
+# if isinstance(poly_aoi, Polygon):
+#     poly_aoi = Polygon(poly_aoi.exterior)
+# elif isinstance(poly_aoi, MultiPolygon):
+#     poly_aoi = MultiPolygon([Polygon(p.exterior.coords) for p in poly_aoi.geoms])
+# else:
+#     raise ValueError('`poly_aoi` is unexpectedly neither a shapely.Polygon nor shapely.MultiPolygon')
+
+# Delete small holes
+def remove_small_holes(geom, area_threshold: int | float):
+    """Remove interior holes smaller than the specified area threshold."""
+    if isinstance(geom, Polygon):
+        # Keep only interiors (holes) whose area is greater than or equal to the threshold
+        filtered_interiors = [
+            interior for interior in geom.interiors 
+            if Polygon(interior).area >= area_threshold
+        ]
+        return Polygon(geom.exterior, filtered_interiors)
+    
+    elif isinstance(geom, MultiPolygon):
+        # Apply recursively to each polygon in the MultiPolygon
+        return MultiPolygon([
+            remove_small_holes(poly, area_threshold) 
+            for poly in geom.geoms
+        ])
+    
+    return geom
+
+THRESHOLD_SQM = 500_000
+
+poly_aoi = remove_small_holes(poly_aoi, THRESHOLD_SQM)
 
 # Convert to GeoDataFrame for export
 gdf_aoi = gpd.GeoDataFrame(
     data=gdf_admin_bounds,
     geometry=gpd.GeoSeries(poly_aoi).make_valid(),
-    crs=crs_wgs84
-)
+    crs=crs_utm50n
+).make_valid().simplify(30, True).to_crs(crs_wgs84)
 
 # Save to GeoJSON
-fp_output = output_dir / f'{municipality}_AOI_MangroveSeagrassMapping.geojson'
+fp_output = output_dir / f'{municipality[0].replace(" ", "")}_AOI_MangroveSeagrassMapping.geojson'
 gdf_aoi.to_file(fp_output)
