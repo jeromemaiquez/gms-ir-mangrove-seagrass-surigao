@@ -5,7 +5,7 @@ import osmnx as ox
 import rioxarray as rxr
 
 from shapely import to_geojson
-from shapely.geometry import LineString, Polygon, MultiPolygon
+from shapely.geometry import LineString, Polygon, MultiPolygon, GeometryCollection
 from rasterio.features import shapes
 import matplotlib.pyplot as plt
 
@@ -41,8 +41,8 @@ fp_s2coast_tiles = Path(r"C:\\Users\\remot\\Documents\\Jerome\\05_GIS_Data\\Vect
 fabdem_catalog_url = 'https://huggingface.co/datasets/links-ads/fabdem-v12/resolve/main/collection.json'
 
 # Set province and municipality name for AOI
-province = 'Palawan'
-municipality = ['Araceli']
+province = 'Zamboanga del Sur'
+municipality = ['Zamboanga City']
 
 
 # --- SECTION 1: Preparing input layers ---
@@ -382,9 +382,27 @@ def remove_small_holes(geom, area_threshold: int | float):
     
     return geom
 
+def collection_to_multipolygon(geom_coll):
+    if isinstance(geom_coll, GeometryCollection):
+    # Filter for polygons and multipolygons
+        polys = []
+        for g in geom_coll.geoms:
+            if isinstance(g, Polygon):
+                polys.append(g)
+            elif isinstance(g, MultiPolygon):
+                polys.extend(g.geoms)
+    elif isinstance(geom_coll, (Polygon, MultiPolygon)):
+        return geom_coll
+
+    if polys:
+        return MultiPolygon(polys)
+
+    return None
+
 THRESHOLD_SQM = 500_000
 
 poly_aoi = remove_small_holes(poly_aoi, THRESHOLD_SQM)
+poly_aoi = collection_to_multipolygon(poly_aoi)
 
 # Convert to GeoDataFrame for export
 gdf_aoi = gpd.GeoDataFrame(
